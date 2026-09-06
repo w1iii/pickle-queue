@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service.js';
 import { SignupDto } from './dto/signup.dto.js';
 import { LoginDto } from './dto/login.dto.js';
@@ -17,30 +17,48 @@ export class AuthService {
     });
 
     if (authError) {
+      if (authError.message?.includes('already') || authError.code === 'user_already_exists') {
+        throw new ConflictException('Account already exists. Please log in.');
+      }
       throw new UnauthorizedException(authError.message);
     }
 
-    const { error: profileError } = await client.from('players').insert({
-      id: authData.user.id,
-      display_name: dto.display_name ?? dto.email.split('@')[0],
-      email: dto.email,
-    });
+    // Check if player profile already exists (from a partial previous signup)
+    const { data: existingPlayer } = await client
+      .from('players')
+      .select('id')
+      .eq('id', authData.user.id)
+      .maybeSingle();
 
-    if (profileError) {
-      await client.auth.admin.deleteUser(authData.user.id);
-      throw new UnauthorizedException(profileError.message);
+    if (!existingPlayer) {
+      const { error: profileError } = await client.from('players').insert({
+        id: authData.user.id,
+        display_name: dto.display_name ?? dto.email.split('@')[0],
+        email: dto.email,
+      });
+
+      if (profileError) {
+        if (profileError.code === '23505') {
+          // Player already exists despite check — race condition, not fatal
+        } else {
+          await client.auth.admin.deleteUser(authData.user.id);
+          throw new UnauthorizedException(profileError.message);
+        }
+      }
     }
 
-    const { data: session, error: sessionError } = await client.auth.admin.generateLink({
-      type: 'magiclink',
+    // Sign in to get a real session token
+    const anonClient = this.supabase.anonClient();
+    const { data: signInData, error: signInError } = await anonClient.auth.signInWithPassword({
       email: dto.email,
+      password: dto.password,
     });
 
-    if (sessionError) {
+    if (signInError) {
       return { user: authData.user, session: null };
     }
 
-    return { user: authData.user, session };
+    return { user: authData.user, session: signInData.session };
   }
 
   async login(dto: LoginDto) {
@@ -73,7 +91,11 @@ export class AuthService {
       .eq('id', data.user.id)
       .single();
 
-    return { user: data.user, profile };
+    return {
+      user: data.user,
+      profile,
+      is_onboarding: profile?.rating === 2.5,
+    };
   }
 
   async logout(token: string) {
