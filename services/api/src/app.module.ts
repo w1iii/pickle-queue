@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { createObserveModule } from '@nestjs/observe';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
-import { SupabaseService } from './auth/supabase.services.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -14,6 +13,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       serviceId: 'api',
     }),
     SupabaseModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService, SupabaseService],
