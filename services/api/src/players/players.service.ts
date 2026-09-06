@@ -105,26 +105,44 @@ export class PlayersService {
   }
 
   async getLeaderboard(facilityId?: string) {
+    let playerIds: string[] | undefined;
+
+    if (facilityId) {
+      const { data: games, error: gamesError } = await this.supabase.admin
+        .from('games')
+        .select('player1_id, player2_id, player3_id, player4_id')
+        .eq('facility_id', facilityId)
+        .eq('status', 'completed');
+
+      if (gamesError) {
+        throw new NotFoundException('Unable to load facility leaderboard');
+      }
+
+      playerIds = [
+        ...new Set(
+          (games ?? []).flatMap((game) =>
+            [
+              game.player1_id,
+              game.player2_id,
+              game.player3_id,
+              game.player4_id,
+            ].filter((id): id is string => Boolean(id)),
+          ),
+        ),
+      ];
+
+      if (playerIds.length === 0) {
+        return [];
+      }
+    }
+
     let query = this.supabase.admin
       .from('players')
       .select('*')
       .eq('is_active', true)
       .order('rating', { ascending: false });
 
-    if (facilityId) {
-      const { data: staff, error: staffError } = await this.supabase.admin
-        .from('facility_staff')
-        .select('user_id')
-        .eq('facility_id', facilityId);
-
-      if (staffError) {
-        throw new NotFoundException('Unable to load facility leaderboard');
-      }
-
-      const playerIds = staff.map((member) => member.user_id);
-      if (playerIds.length === 0) {
-        return [];
-      }
+    if (playerIds) {
       query = query.in('id', playerIds);
     }
 
