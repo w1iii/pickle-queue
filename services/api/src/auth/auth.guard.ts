@@ -25,6 +25,7 @@ export class AuthGuard implements CanActivate {
 
     try {
       request.user = await this.supabaseService.getUser(token);
+      request.token = token;
       return true;
     } catch {
       throw new UnauthorizedException('Invalid or expired access token');

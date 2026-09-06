@@ -45,7 +45,7 @@ describe('AuthService', () => {
 
   describe('signup', () => {
     it('should create user and return session', async () => {
-      const dto = { email: 'test@example.com', password: 'password123' };
+      const dto = { email: 'test@example.com', password: 'test-password' };
       const fakeUser = { id: 'user-1', email: dto.email };
       const fakeSession = { access_token: 'tok', refresh_token: 'ref' };
 
@@ -84,7 +84,7 @@ describe('AuthService', () => {
     });
 
     it('should throw ConflictException for duplicate email', async () => {
-      const dto = { email: 'dup@example.com', password: 'password123' };
+      const dto = { email: 'dup@example.com', password: 'test-password' };
 
       supabase.admin.auth.admin.createUser.mockResolvedValue({
         data: null,
@@ -95,7 +95,7 @@ describe('AuthService', () => {
     });
 
     it('should use email prefix as default display_name', async () => {
-      const dto = { email: 'alice@example.com', password: 'password123' };
+      const dto = { email: 'alice@example.com', password: 'test-password' };
 
       supabase.admin.auth.admin.createUser.mockResolvedValue({
         data: { user: { id: 'u1', email: dto.email } },
@@ -130,7 +130,7 @@ describe('AuthService', () => {
     it('should use provided display_name over email prefix', async () => {
       const dto = {
         email: 'bob@example.com',
-        password: 'password123',
+        password: 'test-password',
         display_name: 'BobTheBuilder',
       };
 
@@ -165,7 +165,7 @@ describe('AuthService', () => {
     });
 
     it('should skip profile insert if player already exists', async () => {
-      const dto = { email: 'existing@example.com', password: 'password123' };
+      const dto = { email: 'existing@example.com', password: 'test-password' };
 
       supabase.admin.auth.admin.createUser.mockResolvedValue({
         data: { user: { id: 'u3', email: dto.email } },
@@ -197,7 +197,7 @@ describe('AuthService', () => {
 
   describe('login', () => {
     it('should return user and session on valid credentials', async () => {
-      const dto = { email: 'test@example.com', password: 'password123' };
+      const dto = { email: 'test@example.com', password: 'test-password' };
       const fakeUser = { id: 'u1', email: dto.email };
       const fakeSession = { access_token: 'tok' };
 

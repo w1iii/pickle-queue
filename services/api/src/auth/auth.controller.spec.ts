@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
-import { SupabaseService } from '../supabase/supabase.service.js';
+import { SupabaseService } from './supabase.services.js';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 describe('AuthController', () => {
@@ -25,7 +25,7 @@ describe('AuthController', () => {
       controllers: [AuthController],
       providers: [
         { provide: AuthService, useValue: authService },
-        { provide: SupabaseService, useValue: { clientWithToken: vi.fn() } },
+        { provide: SupabaseService, useValue: { getUser: vi.fn() } },
       ],
     }).compile();
 
@@ -33,7 +33,7 @@ describe('AuthController', () => {
   });
 
   it('should delegate signup to service', async () => {
-    const dto = { email: 'a@b.com', password: 'pass123' };
+    const dto = { email: 'a@b.com', password: 'test-password' };
     const expected = { user: {}, session: {} };
     authService.signup.mockResolvedValue(expected);
 
@@ -44,7 +44,7 @@ describe('AuthController', () => {
   });
 
   it('should delegate login to service', async () => {
-    const dto = { email: 'a@b.com', password: 'pass123' };
+    const dto = { email: 'a@b.com', password: 'test-password' };
     const expected = { user: {}, session: {} };
     authService.login.mockResolvedValue(expected);
 

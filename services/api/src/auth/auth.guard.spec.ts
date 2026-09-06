@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthGuard } from './auth.guard.js';
-import { SupabaseService } from '../supabase/supabase.service.js';
+import { SupabaseService } from './supabase.services.js';
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -14,10 +14,10 @@ function mockContext(token?: string) {
 
 describe('AuthGuard', () => {
   let guard: AuthGuard;
-  let supabase: { clientWithToken: ReturnType<typeof vi.fn> };
+  let supabase: { getUser: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
-    supabase = { clientWithToken: vi.fn() };
+    supabase = { getUser: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -31,14 +31,7 @@ describe('AuthGuard', () => {
 
   it('should allow valid token', async () => {
     const fakeUser = { id: 'u1' };
-    supabase.clientWithToken.mockReturnValue({
-      auth: {
-        getUser: vi.fn().mockResolvedValue({
-          data: { user: fakeUser },
-          error: null,
-        }),
-      },
-    });
+    supabase.getUser.mockResolvedValue(fakeUser);
 
     const ctx = mockContext('valid-token');
     const result = await guard.canActivate(ctx);
@@ -53,30 +46,16 @@ describe('AuthGuard', () => {
   });
 
   it('should throw UnauthorizedException on invalid token', async () => {
-    supabase.clientWithToken.mockReturnValue({
-      auth: {
-        getUser: vi.fn().mockResolvedValue({
-          data: { user: null },
-          error: { message: 'Invalid' },
-        }),
-      },
-    });
+    supabase.getUser.mockRejectedValue(new Error('Invalid access token'));
 
     await expect(guard.canActivate(mockContext('bad'))).rejects.toThrow(
       UnauthorizedException,
     );
   });
 
-  it('should attach user and token to request', async () => {
+  it('should attach user to request', async () => {
     const fakeUser = { id: 'u1' };
-    supabase.clientWithToken.mockReturnValue({
-      auth: {
-        getUser: vi.fn().mockResolvedValue({
-          data: { user: fakeUser },
-          error: null,
-        }),
-      },
-    });
+    supabase.getUser.mockResolvedValue(fakeUser);
 
     const req: any = { headers: { authorization: 'Bearer my-tok' } };
     const ctx = {
