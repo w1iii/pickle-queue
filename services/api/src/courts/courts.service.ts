@@ -4,17 +4,19 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service.js';
-import { CreateFacilityDto } from './dto/create-facility.dto.js';
-import { UpdateFacilityDto } from './dto/update-facility.dto.js';
+import { CreateCourtDto } from './dto/create-court.dto.js';
+import { UpdateCourtDto } from './dto/update-court.dto.js';
 
 @Injectable()
-export class FacilitiesService {
+export class CourtsService {
   constructor(private readonly supabase: SupabaseService) {}
 
-  async create(userId: string, dto: CreateFacilityDto) {
+  async create(userId: string, dto: CreateCourtDto) {
+    await this.assertFacilityOwnership(userId, dto.facility_id);
+
     const { data, error } = await this.supabase.admin
-      .from('facilities')
-      .insert({ owner_id: userId, ...dto })
+      .from('courts')
+      .insert(dto)
       .select()
       .single();
 
@@ -25,16 +27,15 @@ export class FacilitiesService {
     return data;
   }
 
-  async findAll() {
+  async findByFacility(facilityId: string) {
     const { data, error } = await this.supabase.admin
-      .from('facilities')
+      .from('courts')
       .select('*')
-      .eq('is_active', true)
-      .order('name')
-      .limit(1);
+      .eq('facility_id', facilityId)
+      .order('name');
 
     if (error) {
-      throw new NotFoundException('Unable to load facilities');
+      throw new NotFoundException('Unable to load courts');
     }
 
     return data;
@@ -42,67 +43,55 @@ export class FacilitiesService {
 
   async findOne(id: string) {
     const { data, error } = await this.supabase.admin
-      .from('facilities')
+      .from('courts')
       .select('*')
       .eq('id', id)
       .single();
 
     if (error || !data) {
-      throw new NotFoundException('Facility not found');
+      throw new NotFoundException('Court not found');
     }
 
     return data;
   }
 
-  async findByOwner(userId: string) {
-    const { data, error } = await this.supabase.admin
-      .from('facilities')
-      .select('*')
-      .eq('owner_id', userId)
-      .order('name');
-
-    if (error) {
-      throw new NotFoundException('Unable to load facilities');
-    }
-
-    return data;
-  }
-
-  async update(userId: string, id: string, dto: UpdateFacilityDto) {
-    await this.assertOwnership(userId, id);
+  async update(userId: string, id: string, dto: UpdateCourtDto) {
+    const court = await this.findOne(id);
+    await this.assertFacilityOwnership(userId, court.facility_id);
 
     const { data, error } = await this.supabase.admin
-      .from('facilities')
+      .from('courts')
       .update({ ...dto, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single();
 
     if (error || !data) {
-      throw new NotFoundException('Facility not found');
+      throw new NotFoundException('Court not found');
     }
 
     return data;
   }
 
   async remove(userId: string, id: string) {
-    await this.assertOwnership(userId, id);
+    const court = await this.findOne(id);
+    await this.assertFacilityOwnership(userId, court.facility_id);
 
     const { data, error } = await this.supabase.admin
-      .from('facilities')
+      .from('courts')
       .update({ is_active: false, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single();
 
     if (error || !data) {
-      throw new NotFoundException('Facility not found');
+      throw new NotFoundException('Court not found');
     }
 
     return data;
   }
 
-  private async assertOwnership(userId: string, facilityId: string) {
+  private async assertFacilityOwnership(userId: string, facilityId: string) {
     const { data, error } = await this.supabase.admin
       .from('facilities')
       .select('owner_id')
@@ -115,7 +104,7 @@ export class FacilitiesService {
 
     if (data.owner_id !== userId) {
       throw new ForbiddenException(
-        'You can only modify your own facilities',
+        'You can only manage courts at your own facilities',
       );
     }
   }

@@ -9,6 +9,7 @@ import { SupabaseService } from './supabase.services.js';
 
 type AuthenticatedRequest = Request & {
   user?: Awaited<ReturnType<SupabaseService['getUser']>>;
+  token?: string;
 };
 
 @Injectable()

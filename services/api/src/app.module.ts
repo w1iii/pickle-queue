@@ -3,6 +3,7 @@ import { createObserveModule } from '@nestjs/observe';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
+import { CourtsModule } from './courts/courts.module.js';
 import { FacilitiesModule } from './facilities/facilities.module.js';
 import { PlayersModule } from './players/players.module.js';
 import { SupabaseModule } from './supabase/supabase.module.js';
@@ -21,6 +22,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     AuthModule,
     PlayersModule,
     FacilitiesModule,
+    CourtsModule,
   ],
   controllers: [AppController],
   providers: [AppService, SupabaseService],

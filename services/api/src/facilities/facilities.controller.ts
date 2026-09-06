@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard.js';
+import { CourtsService } from '../courts/courts.service.js';
 import { CreateFacilityDto } from './dto/create-facility.dto.js';
 import { UpdateFacilityDto } from './dto/update-facility.dto.js';
 import { FacilitiesService } from './facilities.service.js';
@@ -20,7 +21,10 @@ type AuthenticatedRequest = Request & { user: { id: string } };
 @Controller('facilities')
 @UseGuards(JwtAuthGuard)
 export class FacilitiesController {
-  constructor(private readonly facilitiesService: FacilitiesService) {}
+  constructor(
+    private readonly facilitiesService: FacilitiesService,
+    private readonly courtsService: CourtsService,
+  ) {}
 
   @Post()
   create(
@@ -43,6 +47,11 @@ export class FacilitiesController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.facilitiesService.findOne(id);
+  }
+
+  @Get(':id/courts')
+  findCourts(@Param('id') id: string) {
+    return this.courtsService.findByFacility(id);
   }
 
   @Patch(':id')
