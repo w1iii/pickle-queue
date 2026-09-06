@@ -4,29 +4,46 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { SupabaseService } from '../supabase/supabase.service.js';
+import { Request } from 'express';
+import { SupabaseService } from './supabase.services.js';
+
+type AuthenticatedRequest = Request & {
+  user?: Awaited<ReturnType<SupabaseService['getUser']>>;
+};
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(private readonly supabase: SupabaseService) {}
+  constructor(private readonly supabaseService: SupabaseService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const req = context.switchToHttp().getRequest();
-    const token = req.headers.authorization?.replace('Bearer ', '');
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    const token = this.getBearerToken(request);
 
     if (!token) {
-      throw new UnauthorizedException('Missing auth token');
+      throw new UnauthorizedException('Bearer token is required');
     }
 
-    const client = this.supabase.clientWithToken(token);
-    const { data, error } = await client.auth.getUser();
+    try {
+      request.user = await this.supabaseService.getUser(token);
+      return true;
+    } catch {
+      throw new UnauthorizedException('Invalid or expired access token');
+    }
+  }
 
-    if (error || !data.user) {
-      throw new UnauthorizedException('Invalid or expired token');
+  private getBearerToken(request: Request): string | undefined {
+    const authorization = request.headers.authorization;
+
+    if (!authorization) {
+      return undefined;
     }
 
-    req.user = data.user;
-    req.token = token;
-    return true;
+    const [scheme, token] = authorization.split(' ');
+
+    if (scheme?.toLowerCase() !== 'bearer' || !token) {
+      return undefined;
+    }
+
+    return token;
   }
 }
