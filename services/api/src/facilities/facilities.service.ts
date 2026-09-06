@@ -30,8 +30,7 @@ export class FacilitiesService {
       .from('facilities')
       .select('*')
       .eq('is_active', true)
-      .order('name')
-      .limit(1);
+      .order('name');
 
     if (error) {
       throw new NotFoundException('Unable to load facilities');

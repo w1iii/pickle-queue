@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { SupabaseService } from './supabase.services.js';
+import { SupabaseService } from '../supabase/supabase.service.js';
 
 type AuthenticatedRequest = Request & {
   user?: Awaited<ReturnType<SupabaseService['getUser']>>;

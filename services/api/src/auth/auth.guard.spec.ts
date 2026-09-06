@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthGuard } from './auth.guard.js';
-import { SupabaseService } from './supabase.services.js';
+import { SupabaseService } from '../supabase/supabase.service.js';
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 

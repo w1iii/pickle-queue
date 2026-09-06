@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { FacilityStaffGuard } from '../common/guards/facility-staff.guard.js';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard.js';
 import { CourtsService } from '../courts/courts.service.js';
 import { CreateFacilityDto } from './dto/create-facility.dto.js';
@@ -27,6 +28,7 @@ export class FacilitiesController {
   ) {}
 
   @Post()
+  @UseGuards(FacilityStaffGuard)
   create(
     @Req() request: AuthenticatedRequest,
     @Body() dto: CreateFacilityDto,
@@ -55,6 +57,7 @@ export class FacilitiesController {
   }
 
   @Patch(':id')
+  @UseGuards(FacilityStaffGuard)
   update(
     @Req() request: AuthenticatedRequest,
     @Param('id') id: string,
@@ -64,6 +67,7 @@ export class FacilitiesController {
   }
 
   @Delete(':id')
+  @UseGuards(FacilityStaffGuard)
   remove(@Req() request: AuthenticatedRequest, @Param('id') id: string) {
     return this.facilitiesService.remove(request.user.id, id);
   }

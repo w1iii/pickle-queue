@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
-import { SupabaseService } from './supabase.services.js';
+import { SupabaseService } from '../supabase/supabase.service.js';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 describe('AuthController', () => {

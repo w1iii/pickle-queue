@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { SupabaseService } from '../../auth/supabase.services.js';
+import { SupabaseService } from '../../supabase/supabase.service.js';
 
 type AuthenticatedRequest = Request & {
   user?: { id: string };
@@ -19,7 +19,7 @@ export class FacilityStaffGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const userId = request.user?.id;
-    const facilityId = request.params.facilityId;
+    const facilityId = request.params.facilityId ?? request.params.id;
 
     if (!userId) {
       throw new UnauthorizedException('Authentication is required');
