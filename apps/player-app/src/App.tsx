@@ -26,7 +26,7 @@ export default function App() {
       .me()
       .then((res) => {
         setAuth({ user: res.user as AuthState["user"], profile: res.profile as unknown as Player });
-        setView("dashboard");
+        setView(res.is_onboarding ? "quiz" : "dashboard");
       })
       .catch(() => setToken(null))
       .finally(() => setLoading(false));
@@ -69,21 +69,27 @@ export default function App() {
     setError(null);
     api.signup(data).then((res) => {
       setToken(res.session ? (res.session as unknown as { access_token: string }).access_token : null);
-      setAuth({ user: res.user as AuthState["user"], profile: { id: res.user.id, email: data.email, display_name: data.display_name ?? data.email.split("@")[0], rating: 2.5 } as unknown as Player });
-      if (res.session) {
-        setView("quiz");
+      return api.me();
+    }).then((res) => {
+      setAuth({ user: res.user as AuthState["user"], profile: res.profile as unknown as Player });
+      setView(res.is_onboarding ? "quiz" : "dashboard");
+    }).catch((e: Error) => {
+      if (e.message.includes("already exists")) {
+        setError("Account already exists. Please log in.");
+      } else {
+        setError(e.message);
       }
-    }).catch((e: Error) => setError(e.message));
+    });
   }
 
   function handleLogin(data: { email: string; password: string }) {
     setError(null);
     api.login(data).then((res) => {
       setToken(res.session.access_token);
-      setView("dashboard");
       return api.me();
     }).then((res) => {
       setAuth({ user: res.user as AuthState["user"], profile: res.profile as unknown as Player });
+      setView(res.is_onboarding ? "quiz" : "dashboard");
     }).catch((e: Error) => setError(e.message));
   }
 
@@ -97,7 +103,7 @@ export default function App() {
   function handleQuizComplete(_rating: number) {
     return api.me().then((res) => {
       setAuth({ user: res.user as AuthState["user"], profile: res.profile as unknown as Player });
-      setView("dashboard");
+      setView(res.is_onboarding ? "quiz" : "dashboard");
     });
   }
 }

@@ -64,7 +64,7 @@ export const api = {
     }>("POST", "/auth/login", data),
 
   me: () =>
-    request<{ user: { id: string }; profile: Record<string, unknown> }>(
+    request<{ user: { id: string }; profile: Record<string, unknown>; is_onboarding: boolean }>(
       "GET",
       "/auth/me",
     ),
