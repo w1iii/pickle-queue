@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { CourtsModule } from './courts/courts.module.js';
 import { FacilitiesModule } from './facilities/facilities.module.js';
 import { PlayersModule } from './players/players.module.js';
+import { QueueModule } from './queue/queue.module.js';
 import { SupabaseModule } from './supabase/supabase.module.js';
 import { SupabaseService } from './supabase/supabase.service.js';
 
@@ -23,6 +24,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     PlayersModule,
     FacilitiesModule,
     CourtsModule,
+    QueueModule,
   ],
   controllers: [AppController],
   providers: [AppService, SupabaseService],
