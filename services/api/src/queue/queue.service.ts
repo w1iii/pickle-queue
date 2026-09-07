@@ -27,30 +27,55 @@ interface QueueEntry {
 export class QueueService {
   constructor(private readonly supabase: SupabaseService) {}
 
-  async join(playerId: string, dto: JoinQueueDto): Promise<QueueEntry> {
+  async join(playerId: string, dto: JoinQueueDto): Promise<QueueEntry[]> {
     await this.assertFacilityActive(dto.facility_id);
     await this.assertNotAlreadyInQueue(playerId, dto.facility_id);
 
-    const position = await this.getNextPosition(dto.facility_id);
+    const isPair = Boolean(dto.partner_id);
 
-    const { data, error } = await this.supabase.admin
-      .from('queue_entries')
-      .insert({
+    if (isPair) {
+      await this.assertNotAlreadyInQueue(dto.partner_id!, dto.facility_id);
+      await this.assertPlayerActive(dto.partner_id!);
+    }
+
+    const squadId = isPair ? crypto.randomUUID() : null;
+    const basePosition = await this.getNextPosition(dto.facility_id);
+
+    const entries = [
+      {
         facility_id: dto.facility_id,
         player_id: playerId,
         status: 'waiting',
-        position,
+        position: basePosition,
+        squad_id: squadId,
         preference_tags: dto.preference_tags ?? [],
         device_push_token: dto.device_push_token,
-      })
-      .select()
-      .single();
+      },
+      ...(isPair
+        ? [
+            {
+              facility_id: dto.facility_id,
+              player_id: dto.partner_id!,
+              status: 'waiting',
+              position: basePosition + 1,
+              squad_id: squadId,
+              preference_tags: [] as string[],
+              device_push_token: undefined as string | undefined,
+            },
+          ]
+        : []),
+    ];
+
+    const { data, error } = await this.supabase.admin
+      .from('queue_entries')
+      .insert(entries)
+      .select();
 
     if (error) {
       throw new BadRequestException(error.message);
     }
 
-    return data;
+    return data ?? [];
   }
 
   async leave(playerId: string, facilityId: string): Promise<void> {
@@ -196,6 +221,18 @@ export class QueueService {
 
     if (data) {
       throw new ConflictException('Already in queue for this facility');
+    }
+  }
+
+  private async assertPlayerActive(playerId: string): Promise<void> {
+    const { data, error } = await this.supabase.admin
+      .from('players')
+      .select('is_active')
+      .eq('id', playerId)
+      .single();
+
+    if (error || !data || !data.is_active) {
+      throw new BadRequestException('Partner is not an active player');
     }
   }
 

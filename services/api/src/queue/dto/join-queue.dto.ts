@@ -6,6 +6,10 @@ export class JoinQueueDto {
   facility_id!: string;
 
   @IsOptional()
+  @IsString()
+  partner_id?: string;
+
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
   preference_tags?: string[];

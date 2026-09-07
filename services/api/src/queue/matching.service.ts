@@ -2,6 +2,18 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service.js';
 import { QueueService } from './queue.service.js';
 
+interface QueueEntry {
+  id: string;
+  player_id: string;
+  position: number;
+  squad_id: string | null;
+}
+
+interface Squad {
+  squadId: string;
+  entries: [QueueEntry, QueueEntry];
+}
+
 @Injectable()
 export class MatchingService {
   private readonly logger = new Logger(MatchingService.name);
@@ -19,7 +31,7 @@ export class MatchingService {
     if (!facility) return;
 
     const waitingEntries = await this.getWaitingEntries(facilityId);
-    if (waitingEntries.length < 2) return;
+    if (waitingEntries.length < 4) return;
 
     const availableCourts = await this.getAvailableCourts(facilityId);
     if (availableCourts.length === 0) return;
@@ -42,80 +54,148 @@ export class MatchingService {
   }
 
   private async matchBySkill(
-    entries: Array<{ id: string; player_id: string; position: number }>,
+    entries: QueueEntry[],
     courts: Array<{ id: string }>,
   ): Promise<void> {
+    const { squads, singles } = this.groupBySquad(entries);
+
     const playerIds = entries.map((e) => e.player_id);
     const players = await this.getPlayers(playerIds);
+    const getRating = (pid: string) =>
+      players.find((p) => p.id === pid)?.rating ?? 0;
 
-    const sorted = [...entries].sort((a, b) => {
-      const pa = players.find((p) => p.id === a.player_id);
-      const pb = players.find((p) => p.id === b.player_id);
-      return (pb?.rating ?? 0) - (pa?.rating ?? 0);
+    const sortedSquads = [...squads].sort((a, b) => {
+      const avgA = (getRating(a.entries[0].player_id) + getRating(a.entries[1].player_id)) / 2;
+      const avgB = (getRating(b.entries[0].player_id) + getRating(b.entries[1].player_id)) / 2;
+      return avgB - avgA;
     });
 
-    await this.pairEntries(sorted, courts);
+    const sortedSingles = [...singles].sort(
+      (a, b) => getRating(b.player_id) - getRating(a.player_id),
+    );
+
+    await this.matchDoubles(sortedSquads, sortedSingles, courts);
   }
 
   private async matchFifo(
-    entries: Array<{ id: string; player_id: string; position: number }>,
+    entries: QueueEntry[],
     courts: Array<{ id: string }>,
   ): Promise<void> {
-    const sorted = [...entries].sort((a, b) => a.position - b.position);
-    await this.pairEntries(sorted, courts);
+    const { squads, singles } = this.groupBySquad(entries);
+
+    const sortedSquads = [...squads].sort(
+      (a, b) => a.entries[0].position - b.entries[0].position,
+    );
+    const sortedSingles = [...singles].sort((a, b) => a.position - b.position);
+
+    await this.matchDoubles(sortedSquads, sortedSingles, courts);
   }
 
   private async matchRandom(
-    entries: Array<{ id: string; player_id: string; position: number }>,
+    entries: QueueEntry[],
     courts: Array<{ id: string }>,
   ): Promise<void> {
-    const shuffled = [...entries].sort(() => Math.random() - 0.5);
-    await this.pairEntries(shuffled, courts);
+    const { squads, singles } = this.groupBySquad(entries);
+
+    const shuffledSquads = [...squads].sort(() => Math.random() - 0.5);
+    const shuffledSingles = [...singles].sort(() => Math.random() - 0.5);
+
+    await this.matchDoubles(shuffledSquads, shuffledSingles, courts);
   }
 
-  private async pairEntries(
-    entries: Array<{ id: string; player_id: string }>,
-    courts: Array<{ id: string }>,
-  ): Promise<void> {
-    const pairs = this.chunkIntoPairs(entries);
+  private groupBySquad(entries: QueueEntry[]): {
+    squads: Squad[];
+    singles: QueueEntry[];
+  } {
+    const squadMap = new Map<string, QueueEntry[]>();
+    const singles: QueueEntry[] = [];
 
-    for (let i = 0; i < pairs.length && i < courts.length; i++) {
-      const [entry1, entry2] = pairs[i];
-      if (!entry1 || !entry2) continue;
-
-      const court = courts[i];
-
-      const game = await this.createGame(
-        entry1.player_id,
-        entry2.player_id,
-        court.id,
-      );
-
-      if (game) {
-        await this.queueService.markMatched(entry1.id, game.id);
-        await this.queueService.markMatched(entry2.id, game.id);
-        this.logger.log(`Matched: ${entry1.player_id} vs ${entry2.player_id} on court ${court.id}`);
+    for (const entry of entries) {
+      if (entry.squad_id) {
+        const group = squadMap.get(entry.squad_id) ?? [];
+        group.push(entry);
+        squadMap.set(entry.squad_id, group);
+      } else {
+        singles.push(entry);
       }
     }
+
+    const squads: Squad[] = [];
+    for (const [squadId, group] of squadMap) {
+      if (group.length >= 2) {
+        squads.push({ squadId, entries: [group[0], group[1]] });
+      } else {
+        singles.push(group[0]);
+      }
+    }
+
+    return { squads, singles };
   }
 
-  private chunkIntoPairs<T>(items: T[]): Array<[T, T?]> {
-    const pairs: Array<[T, T?]> = [];
-    for (let i = 0; i < items.length; i += 2) {
-      pairs.push([items[i], items[i + 1]]);
+  private async matchDoubles(
+    squads: Squad[],
+    singles: QueueEntry[],
+    courts: Array<{ id: string }>,
+  ): Promise<void> {
+    let courtIdx = 0;
+
+    while (courtIdx < courts.length) {
+      const teamA = this.pickTeamA(squads, singles);
+      if (!teamA) break;
+
+      const teamB = this.pickTeamB(squads, singles, teamA);
+      if (!teamB) break;
+
+      const court = courts[courtIdx];
+      const allIds = [...teamA, ...teamB].map((e) => e.player_id);
+
+      const game = await this.createGame(allIds, court.id);
+
+      if (game) {
+        for (const entry of [...teamA, ...teamB]) {
+          await this.queueService.markMatched(entry.id, game.id);
+        }
+        this.logger.log(
+          `Doubles match: ${allIds.join(' vs ')} on court ${court.id}`,
+        );
+      }
+
+      courtIdx++;
     }
-    return pairs;
+  }
+
+  private pickTeamA(squads: Squad[], singles: QueueEntry[]): QueueEntry[] | null {
+    if (squads.length > 0) {
+      return squads.shift()!.entries;
+    }
+    if (singles.length >= 2) {
+      return [singles.shift()!, singles.shift()!];
+    }
+    return null;
+  }
+
+  private pickTeamB(
+    squads: Squad[],
+    singles: QueueEntry[],
+    teamA: QueueEntry[],
+  ): QueueEntry[] | null {
+    if (squads.length > 0) {
+      return squads.shift()!.entries;
+    }
+    if (singles.length >= 2) {
+      return [singles.shift()!, singles.shift()!];
+    }
+    return null;
   }
 
   private async createGame(
-    player1Id: string,
-    player2Id: string,
+    playerIds: string[],
     courtId: string,
   ) {
     const { data: facility } = await this.supabase.admin
       .from('queue_entries')
       .select('facility_id')
-      .eq('player_id', player1Id)
+      .eq('player_id', playerIds[0])
       .eq('status', 'waiting')
       .maybeSingle();
 
@@ -124,10 +204,12 @@ export class MatchingService {
       .insert({
         facility_id: facility?.facility_id,
         court_id: courtId,
-        player1_id: player1Id,
-        player2_id: player2Id,
+        player1_id: playerIds[0],
+        player2_id: playerIds[1],
+        player3_id: playerIds[2],
+        player4_id: playerIds[3],
         status: 'scheduled',
-        is_doubles: false,
+        is_doubles: true,
       })
       .select()
       .single();
@@ -160,10 +242,10 @@ export class MatchingService {
     return data;
   }
 
-  private async getWaitingEntries(facilityId: string) {
+  private async getWaitingEntries(facilityId: string): Promise<QueueEntry[]> {
     const { data } = await this.supabase.admin
       .from('queue_entries')
-      .select('id, player_id, position')
+      .select('id, player_id, position, squad_id')
       .eq('facility_id', facilityId)
       .eq('status', 'waiting')
       .order('position', { ascending: true });
