@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  Param,
   Post,
   Req,
   UseGuards,
@@ -27,7 +29,7 @@ export class QueueController {
     return this.queueService.join(request.user.id, dto);
   }
 
-  @Post('leave')
+  @Delete('leave')
   leave(
     @Req() request: AuthenticatedRequest,
     @Body('facility_id') facilityId: string,
@@ -35,13 +37,23 @@ export class QueueController {
     return this.queueService.leave(request.user.id, facilityId);
   }
 
-  @Get('status/:facilityId')
-  getStatus(@Req() request: AuthenticatedRequest, @Req() req: any) {
-    return this.queueService.getStatus(req.params.facilityId);
+  @Get('status')
+  getOwnStatus(@Req() request: AuthenticatedRequest) {
+    return this.queueService.getOwnStatus(request.user.id);
+  }
+
+  @Get(':facilityId')
+  getQueueList(@Param('facilityId') facilityId: string) {
+    return this.queueService.getStatus(facilityId);
+  }
+
+  @Get(':facilityId/wait-time')
+  getWaitTime(@Param('facilityId') facilityId: string) {
+    return this.queueService.getWaitTime(facilityId);
   }
 
   @Post('match/:facilityId')
-  triggerMatch(@Req() req: any) {
-    return this.matchingService.runMatch(req.params.facilityId);
+  triggerMatch(@Param('facilityId') facilityId: string) {
+    return this.matchingService.runMatch(facilityId);
   }
 }

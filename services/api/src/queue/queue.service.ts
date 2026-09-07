@@ -81,13 +81,26 @@ export class QueueService {
   async leave(playerId: string, facilityId: string): Promise<void> {
     const entry = await this.findActiveEntry(playerId, facilityId);
 
-    const { error } = await this.supabase.admin
-      .from('queue_entries')
-      .update({ status: 'cancelled' })
-      .eq('id', entry.id);
+    if (entry.squad_id) {
+      const { error } = await this.supabase.admin
+        .from('queue_entries')
+        .update({ status: 'cancelled' })
+        .eq('squad_id', entry.squad_id)
+        .eq('facility_id', facilityId)
+        .in('status', ['waiting']);
 
-    if (error) {
-      throw new BadRequestException(error.message);
+      if (error) {
+        throw new BadRequestException(error.message);
+      }
+    } else {
+      const { error } = await this.supabase.admin
+        .from('queue_entries')
+        .update({ status: 'cancelled' })
+        .eq('id', entry.id);
+
+      if (error) {
+        throw new BadRequestException(error.message);
+      }
     }
 
     await this.reorderPositions(facilityId);
@@ -120,6 +133,64 @@ export class QueueService {
 
   async getPlayerEntry(playerId: string, facilityId: string) {
     return this.findActiveEntry(playerId, facilityId);
+  }
+
+  async getOwnStatus(playerId: string) {
+    const { data, error } = await this.supabase.admin
+      .from('queue_entries')
+      .select('*')
+      .eq('player_id', playerId)
+      .in('status', ['waiting', 'matched', 'playing'])
+      .order('joined_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return data;
+  }
+
+  async getWaitTime(facilityId: string): Promise<{
+    estimated_min: number;
+    ahead_in_queue: number;
+    recent_avg_wait_min: number;
+  }> {
+    const { data: waiting } = await this.supabase.admin
+      .from('queue_entries')
+      .select('id, position')
+      .eq('facility_id', facilityId)
+      .eq('status', 'waiting')
+      .order('position', { ascending: true });
+
+    const { data: recentGames } = await this.supabase.admin
+      .from('games')
+      .select('created_at, started_at')
+      .eq('facility_id', facilityId)
+      .eq('status', 'completed')
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    const recentWaitTimes = (recentGames ?? [])
+      .map((g) => {
+        if (!g.started_at) return null;
+        const diff = new Date(g.started_at).getTime() - new Date(g.created_at).getTime();
+        return diff / 60000;
+      })
+      .filter((w): w is number => w !== null && w > 0);
+
+    const avgWait = recentWaitTimes.length > 0
+      ? recentWaitTimes.reduce((a, b) => a + b, 0) / recentWaitTimes.length
+      : 15;
+
+    const ahead = (waiting ?? []).length;
+
+    return {
+      estimated_min: Math.round(avgWait),
+      ahead_in_queue: ahead,
+      recent_avg_wait_min: Math.round(avgWait),
+    };
   }
 
   async markMatched(entryId: string, gameId: string): Promise<void> {
