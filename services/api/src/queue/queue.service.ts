@@ -7,7 +7,7 @@ import {
 import { SupabaseService } from '../supabase/supabase.service.js';
 import { JoinQueueDto } from './dto/join-queue.dto.js';
 
-interface QueueEntry {
+export interface QueueEntry {
   id: string;
   facility_id: string;
   player_id: string;
