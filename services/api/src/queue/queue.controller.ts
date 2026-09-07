@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -32,7 +33,7 @@ export class QueueController {
   @Delete('leave')
   leave(
     @Req() request: AuthenticatedRequest,
-    @Body('facility_id') facilityId: string,
+    @Query('facility_id') facilityId: string,
   ) {
     return this.queueService.leave(request.user.id, facilityId);
   }
