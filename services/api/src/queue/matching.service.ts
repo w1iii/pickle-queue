@@ -6,7 +6,14 @@ interface QueueEntry {
   id: string;
   player_id: string;
   position: number;
+  joined_at: string;
   squad_id: string | null;
+}
+
+interface PlayerRating {
+  id: string;
+  rating: number;
+  rating_dev: number;
 }
 
 interface Squad {
@@ -61,20 +68,35 @@ export class MatchingService {
 
     const playerIds = entries.map((e) => e.player_id);
     const players = await this.getPlayers(playerIds);
-    const getRating = (pid: string) =>
-      players.find((p) => p.id === pid)?.rating ?? 0;
+    const playerMap = new Map(players.map((p) => [p.id, p]));
+
+    const getRating = (pid: string) => playerMap.get(pid)?.rating ?? 0;
+    const getDev = (pid: string) => playerMap.get(pid)?.rating_dev ?? 1;
+
+    // Sort by rating_dev ASC (most confident), then joined_at ASC
+    const sortByConfidence = (a: QueueEntry, b: QueueEntry) => {
+      const devA = getDev(a.player_id);
+      const devB = getDev(b.player_id);
+      if (devA !== devB) return devA - devB;
+      return new Date(a.joined_at).getTime() - new Date(b.joined_at).getTime();
+    };
 
     const sortedSquads = [...squads].sort((a, b) => {
-      const avgA = (getRating(a.entries[0].player_id) + getRating(a.entries[1].player_id)) / 2;
-      const avgB = (getRating(b.entries[0].player_id) + getRating(b.entries[1].player_id)) / 2;
-      return avgB - avgA;
+      const avgA =
+        (getRating(a.entries[0].player_id) +
+          getRating(a.entries[1].player_id)) /
+        2;
+      const avgB =
+        (getRating(b.entries[0].player_id) +
+          getRating(b.entries[1].player_id)) /
+        2;
+      if (avgA !== avgB) return avgA - avgB;
+      return sortByConfidence(a.entries[0], b.entries[0]);
     });
 
-    const sortedSingles = [...singles].sort(
-      (a, b) => getRating(b.player_id) - getRating(a.player_id),
-    );
+    const sortedSingles = [...singles].sort(sortByConfidence);
 
-    await this.matchDoubles(sortedSquads, sortedSingles, courts);
+    await this.matchSkillBased(sortedSquads, sortedSingles, courts, getRating);
   }
 
   private async matchFifo(
@@ -83,10 +105,14 @@ export class MatchingService {
   ): Promise<void> {
     const { squads, singles } = this.groupBySquad(entries);
 
-    const sortedSquads = [...squads].sort(
-      (a, b) => a.entries[0].position - b.entries[0].position,
+    // Sort by joined_at ASC (first in, first out)
+    const sortByJoined = (a: QueueEntry, b: QueueEntry) =>
+      new Date(a.joined_at).getTime() - new Date(b.joined_at).getTime();
+
+    const sortedSquads = [...squads].sort((a, b) =>
+      sortByJoined(a.entries[0], b.entries[0]),
     );
-    const sortedSingles = [...singles].sort((a, b) => a.position - b.position);
+    const sortedSingles = [...singles].sort(sortByJoined);
 
     await this.matchDoubles(sortedSquads, sortedSingles, courts);
   }
@@ -101,6 +127,109 @@ export class MatchingService {
     const shuffledSingles = [...singles].sort(() => Math.random() - 0.5);
 
     await this.matchDoubles(shuffledSquads, shuffledSingles, courts);
+  }
+
+  private async matchSkillBased(
+    squads: Squad[],
+    singles: QueueEntry[],
+    courts: Array<{ id: string }>,
+    getRating: (pid: string) => number,
+  ): Promise<void> {
+    const BASE_SPREAD = 0.5;
+    const EXPANDED_SPREAD = 1.0;
+    const matched = new Set<string>();
+
+    for (const court of courts) {
+      const team = this.findSkillMatch(
+        squads,
+        singles,
+        getRating,
+        BASE_SPREAD,
+        EXPANDED_SPREAD,
+        matched,
+      );
+
+      if (!team || team.length < 4) break;
+
+      const playerIds = team.map((e) => e.player_id);
+      const game = await this.createGame(playerIds, court.id);
+
+      if (game) {
+        for (const entry of team) {
+          matched.add(entry.id);
+          await this.queueService.markMatched(entry.id, game.id);
+        }
+        this.logger.log(
+          `Skill match: ${playerIds.join(' vs ')} on court ${court.id}`,
+        );
+      }
+    }
+  }
+
+  private findSkillMatch(
+    squads: Squad[],
+    singles: QueueEntry[],
+    getRating: (pid: string) => number,
+    baseSpread: number,
+    expandedSpread: number,
+    matched: Set<string>,
+  ): QueueEntry[] | null {
+    // Try base spread first
+    const baseResult = this.tryMatch(
+      squads,
+      singles,
+      getRating,
+      baseSpread,
+      matched,
+    );
+    if (baseResult) return baseResult;
+
+    // Expand spread for all unmatched singles
+    return this.tryMatch(squads, singles, getRating, expandedSpread, matched);
+  }
+
+  private tryMatch(
+    squads: Squad[],
+    singles: QueueEntry[],
+    getRating: (pid: string) => number,
+    spread: number,
+    matched: Set<string>,
+  ): QueueEntry[] | null {
+    // Collect all unmatched players with ratings
+    const candidates: Array<{ entry: QueueEntry; rating: number }> = [];
+
+    for (const squad of squads) {
+      if (matched.has(squad.entries[0].id)) continue;
+      const avgRating =
+        (getRating(squad.entries[0].player_id) +
+          getRating(squad.entries[1].player_id)) /
+        2;
+      candidates.push({ entry: squad.entries[0], rating: avgRating });
+    }
+
+    for (const single of singles) {
+      if (matched.has(single.id)) continue;
+      candidates.push({ entry: single, rating: getRating(single.player_id) });
+    }
+
+    if (candidates.length < 4) return null;
+
+    // Sort by rating
+    candidates.sort((a, b) => a.rating - b.rating);
+
+    // Find 4 players within spread
+    for (let i = 0; i <= candidates.length - 4; i++) {
+      const group = candidates.slice(i, i + 4);
+      const ratings = group.map((c) => c.rating);
+      const min = Math.min(...ratings);
+      const max = Math.max(...ratings);
+
+      if (max - min <= spread) {
+        return group.map((c) => c.entry);
+      }
+    }
+
+    return null;
   }
 
   private groupBySquad(entries: QueueEntry[]): {
@@ -164,7 +293,10 @@ export class MatchingService {
     }
   }
 
-  private pickTeamA(squads: Squad[], singles: QueueEntry[]): QueueEntry[] | null {
+  private pickTeamA(
+    squads: Squad[],
+    singles: QueueEntry[],
+  ): QueueEntry[] | null {
     if (squads.length > 0) {
       return squads.shift()!.entries;
     }
@@ -188,10 +320,7 @@ export class MatchingService {
     return null;
   }
 
-  private async createGame(
-    playerIds: string[],
-    courtId: string,
-  ) {
+  private async createGame(playerIds: string[], courtId: string) {
     const { data: facility } = await this.supabase.admin
       .from('queue_entries')
       .select('facility_id')
@@ -245,7 +374,7 @@ export class MatchingService {
   private async getWaitingEntries(facilityId: string): Promise<QueueEntry[]> {
     const { data } = await this.supabase.admin
       .from('queue_entries')
-      .select('id, player_id, position, squad_id')
+      .select('id, player_id, position, joined_at, squad_id')
       .eq('facility_id', facilityId)
       .eq('status', 'waiting')
       .order('position', { ascending: true });
@@ -271,10 +400,10 @@ export class MatchingService {
     return (courts ?? []).filter((c) => !busyIds.has(c.id));
   }
 
-  private async getPlayers(ids: string[]) {
+  private async getPlayers(ids: string[]): Promise<PlayerRating[]> {
     const { data } = await this.supabase.admin
       .from('players')
-      .select('id, rating')
+      .select('id, rating, rating_dev')
       .in('id', ids);
 
     return data ?? [];
