@@ -6,6 +6,7 @@ import { CourtsModule } from './courts/courts.module.js';
 import { FacilitiesModule } from './facilities/facilities.module.js';
 import { PlayersModule } from './players/players.module.js';
 import { QueueModule } from './queue/queue.module.js';
+import { RatingsModule } from './ratings/ratings.module.js';
 import { SupabaseModule } from './supabase/supabase.module.js';
 import { SupabaseService } from './supabase/supabase.service.js';
 
@@ -17,6 +18,7 @@ import { SupabaseService } from './supabase/supabase.service.js';
     FacilitiesModule,
     CourtsModule,
     QueueModule,
+    RatingsModule,
   ],
   controllers: [AppController],
   providers: [AppService, SupabaseService],
