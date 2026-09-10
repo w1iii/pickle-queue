@@ -4,13 +4,18 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { FacilityStaffGuard } from '../common/guards/facility-staff.guard.js';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard.js';
 import { JoinQueueDto } from './dto/join-queue.dto.js';
+import { ManualAddPlayerDto } from './dto/manual-add-player.dto.js';
+import { OverridePositionDto } from './dto/override-position.dto.js';
 import { MatchingService } from './matching.service.js';
 import { QueueService } from './queue.service.js';
 
@@ -32,7 +37,7 @@ export class QueueController {
   @Delete('leave')
   leave(
     @Req() request: AuthenticatedRequest,
-    @Body('facility_id') facilityId: string,
+    @Query('facility_id') facilityId: string,
   ) {
     return this.queueService.leave(request.user.id, facilityId);
   }
@@ -50,6 +55,30 @@ export class QueueController {
   @Get(':facilityId/wait-time')
   getWaitTime(@Param('facilityId') facilityId: string) {
     return this.queueService.getWaitTime(facilityId);
+  }
+
+  @Post(':facilityId/manual-add')
+  @UseGuards(FacilityStaffGuard)
+  manualAdd(
+    @Param('facilityId') facilityId: string,
+    @Body() dto: ManualAddPlayerDto,
+  ) {
+    return this.queueService.manualAdd(facilityId, dto);
+  }
+
+  @Patch(':entryId/override')
+  @UseGuards(FacilityStaffGuard)
+  overridePosition(
+    @Param('entryId') entryId: string,
+    @Body() dto: OverridePositionDto,
+  ) {
+    return this.queueService.overridePosition(entryId, dto.new_position);
+  }
+
+  @Post(':facilityId/force-match')
+  @UseGuards(FacilityStaffGuard)
+  forceMatch(@Param('facilityId') facilityId: string) {
+    return this.matchingService.runMatch(facilityId);
   }
 
   @Post('match/:facilityId')

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service.js';
 import { JoinQueueDto } from './dto/join-queue.dto.js';
+import { ManualAddPlayerDto } from './dto/manual-add-player.dto.js';
 
 export interface QueueEntry {
   id: string;
@@ -175,14 +176,16 @@ export class QueueService {
     const recentWaitTimes = (recentGames ?? [])
       .map((g) => {
         if (!g.started_at) return null;
-        const diff = new Date(g.started_at).getTime() - new Date(g.created_at).getTime();
+        const diff =
+          new Date(g.started_at).getTime() - new Date(g.created_at).getTime();
         return diff / 60000;
       })
       .filter((w): w is number => w !== null && w > 0);
 
-    const avgWait = recentWaitTimes.length > 0
-      ? recentWaitTimes.reduce((a, b) => a + b, 0) / recentWaitTimes.length
-      : 15;
+    const avgWait =
+      recentWaitTimes.length > 0
+        ? recentWaitTimes.reduce((a, b) => a + b, 0) / recentWaitTimes.length
+        : 15;
 
     const ahead = (waiting ?? []).length;
 
@@ -244,6 +247,104 @@ export class QueueService {
 
     if (error) {
       throw new BadRequestException(error.message);
+    }
+  }
+
+  async manualAdd(
+    facilityId: string,
+    dto: ManualAddPlayerDto,
+  ): Promise<QueueEntry[]> {
+    await this.assertFacilityActive(facilityId);
+    await this.assertNotAlreadyInQueue(dto.player_id, facilityId);
+
+    const isPair = Boolean(dto.partner_id);
+
+    if (isPair) {
+      await this.assertNotAlreadyInQueue(dto.partner_id!, facilityId);
+      await this.assertPlayerActive(dto.partner_id!);
+    }
+
+    const squadId = isPair ? crypto.randomUUID() : null;
+    const basePosition = await this.getNextPosition(facilityId);
+
+    const entries = [
+      {
+        facility_id: facilityId,
+        player_id: dto.player_id,
+        status: 'waiting',
+        position: basePosition,
+        squad_id: squadId,
+        preference_tags: dto.preference_tags ?? [],
+      },
+      ...(isPair
+        ? [
+            {
+              facility_id: facilityId,
+              player_id: dto.partner_id!,
+              status: 'waiting',
+              position: basePosition + 1,
+              squad_id: squadId,
+              preference_tags: [] as string[],
+            },
+          ]
+        : []),
+    ];
+
+    const { data, error } = await this.supabase.admin
+      .from('queue_entries')
+      .insert(entries)
+      .select();
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return data ?? [];
+  }
+
+  async overridePosition(entryId: string, newPosition: number): Promise<void> {
+    const { data: entry, error: fetchError } = await this.supabase.admin
+      .from('queue_entries')
+      .select('*')
+      .eq('id', entryId)
+      .single();
+
+    if (fetchError || !entry) {
+      throw new NotFoundException('Queue entry not found');
+    }
+
+    if (entry.status !== 'waiting') {
+      throw new BadRequestException(
+        'Can only override position for waiting entries',
+      );
+    }
+
+    const { data: waitingEntries } = await this.supabase.admin
+      .from('queue_entries')
+      .select('id, position')
+      .eq('facility_id', entry.facility_id)
+      .eq('status', 'waiting')
+      .order('position', { ascending: true });
+
+    const entries = waitingEntries ?? [];
+    const maxPosition = entries.length;
+
+    if (newPosition > maxPosition) {
+      throw new BadRequestException(
+        `Position must be between 1 and ${maxPosition}`,
+      );
+    }
+
+    const currentIndex = entries.findIndex((e) => e.id === entryId);
+    const newEntries = [...entries];
+    const [moved] = newEntries.splice(currentIndex, 1);
+    newEntries.splice(newPosition - 1, 0, moved);
+
+    for (let i = 0; i < newEntries.length; i++) {
+      await this.supabase.admin
+        .from('queue_entries')
+        .update({ position: i + 1 })
+        .eq('id', newEntries[i].id);
     }
   }
 
